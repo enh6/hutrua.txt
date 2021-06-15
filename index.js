@@ -25,6 +25,7 @@ function html_template(page) {
   return `<!DOCTYPE html>
 <html>
 <head>
+  <title>${page.title}</title>
 </head>
 <body>
   <h1>${page.title}</h1>
