@@ -1,19 +1,19 @@
-addEventListener("fetch", (event) => {
+addEventListener('fetch', event => {
   event.respondWith(
     handleRequest(event.request).catch(
-      (err) => new Response(err.stack, { status: 500 })
-    )
+      err => new Response(err.stack, { status: 500 }),
+    ),
   );
 });
 
 async function handleRequest(request) {
   const { origin, pathname } = new URL(request.url);
 
-  if (pathname == "/" || pathname == "/txt/" || pathname == "/txt/index.html") {
-    return Response.redirect(origin + "/txt/hutrua.txt", 301);
+  if (pathname == '/' || pathname == '/txt/' || pathname == '/txt/index.html') {
+    return Response.redirect(origin + '/txt/hutrua.txt', 301);
   }
 
-  if (pathname.startsWith("/txt/") && pathname.endsWith(".txt")) {
+  if (pathname.startsWith('/txt/') && pathname.endsWith('.txt')) {
     let name = pathname.substr(5);
     return handleTxt(name);
   }
@@ -38,11 +38,11 @@ function html_template(page) {
 async function handleTxt(name) {
   let content = await TXT.get(name);
   if (content == null) {
-      name = '404.txt';
-      content = await TXT.get(name);
+    name = '404.txt';
+    content = await TXT.get(name);
   }
-  let page = {title: name, body: content};
+  let page = { title: name, body: content };
   return new Response(html_template(page), {
-    headers: {"content-type": "text/html;charset=UTF-8",}
+    headers: { 'content-type': 'text/html;charset=UTF-8' },
   });
 }
