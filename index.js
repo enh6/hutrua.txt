@@ -16,6 +16,10 @@ async function handleRequest(request) {
   if (pathname === '/txt/list' || pathname === '/txt/list/') {
     return ListTxt();
   }
+  
+  if (pathname === '/txt/upload' || pathname === '/txt/upload/') {
+    return Upload();
+  }
 
   if (pathname.endsWith('.txt')) {
     let name = decodeURIComponent(pathname.substr(5));
@@ -95,5 +99,12 @@ async function ListTxt() {
   list = list.join('\n');
   return new Response(html_template('txt list', list), {
     headers: { 'content-type': 'text/html;charset=UTF-8' },
+  });
+}
+
+async function Upload() {
+  upload_html = "upload a txt file";
+  return new Response(html_template('upload', upload_html), {
+    headers: { 'content-type': 'text/plain;charset=UTF-8' },
   });
 }
