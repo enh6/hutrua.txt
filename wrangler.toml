@@ -1,4 +1,5 @@
 name = "hutrua-txt"
+type = "javascript"
 main = "./index.js"
 
 account_id = "b410adaa9ab7f1ef2eb0db105947d60c"
