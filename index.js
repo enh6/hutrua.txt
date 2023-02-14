@@ -7,28 +7,39 @@ addEventListener('fetch', event => {
 });
 
 async function handleRequest(request) {
-  const { origin, pathname } = new URL(request.url);
+  let { origin, pathname: path, searchParams: params } = new URL(request.url);
 
-  if (!pathname.startsWith('/txt/') || pathname === '/txt/' || pathname === '/txt/index.html') {
+  if (!path.startsWith('/txt/')) {
+    return Response.redirect(origin + '/txt/', 301);
+  }
+
+  if (path === '/txt/') {
     return Response.redirect(origin + '/txt/hutrua', 301);
   }
 
-  if (pathname === '/txt/list' || pathname === '/txt/list/') {
+  path = path.substring(5);
+  path = path.endsWith('/') ? path.slice(0, -1) : path;
+
+  if (path === 'list') {
     return ListTxt();
   }
-  
-  if (pathname === '/txt/upload' || pathname === '/txt/upload/') {
-    return Upload();
+
+  if (path === 'upload') {
+    return Upload(request);
   }
 
-  if (pathname.endsWith('.txt')) {
-    let name = decodeURIComponent(pathname.substr(5));
+  if (path == 'edit') {
+    return Edit(request, params.get('filename'));
+  }
+
+  if (path.startsWith('raw/')) {
+    let name = decodeURIComponent(path.substring(4));
     let txt = await TXT.get(name);
     if (txt !== null) {
       return ShowTxtPlain(name, txt);
     }
   } else {
-    let name = decodeURIComponent(pathname.substr(5)) +'.txt';
+    let name = decodeURIComponent(path);
     let txt = await TXT.get(name);
     if (txt !== null) {
       return ShowTxt(name, txt);
@@ -40,11 +51,11 @@ async function handleRequest(request) {
 
 function escapeHtml(unsafe) {
   return unsafe
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 function html_template(name, content) {
@@ -71,19 +82,20 @@ function html_template(name, content) {
 </html>`;
 }
 
-async function ShowTxt(name, txt) {
+function ShowTxt(name, txt) {
   txt = txt.split('\n');
   for (let i = 0; i < txt.length; i++) {
     txt[i] = '<p>' + escapeHtml(txt[i]) + '</p>';
   }
+  txt.push(`<a href="raw/${name}">raw</a>`);
+  txt.push(`<a href="edit?filename=${name}">edit</a>`);
   txt = txt.join('\n');
-  txt += `<a href="${name}">raw</a>\n`;
   return new Response(html_template(name, txt), {
     headers: { 'content-type': 'text/html;charset=UTF-8' },
   });
 }
 
-async function ShowTxtPlain(name, txt) {
+function ShowTxtPlain(name, txt) {
   return new Response(txt, {
     headers: { 'content-type': 'text/plain;charset=UTF-8' },
   });
@@ -92,19 +104,97 @@ async function ShowTxtPlain(name, txt) {
 async function ListTxt() {
   const v = await TXT.list();
   let list = [];
-  for(let i = 0; i < v.keys.length; i++) {
+  for (let i = 0; i < v.keys.length; i++) {
     let name = v.keys[i].name;
-    list.push(`<p><a href="/txt/${name.slice(0, -4)}">${name}</a></p>\n`);
+    list.push(`<p><a href="/txt/${name}">${name}</a></p>\n`);
   }
+  list.push(`<a href="upload">upload</a>`);
   list = list.join('\n');
   return new Response(html_template('txt list', list), {
     headers: { 'content-type': 'text/html;charset=UTF-8' },
   });
 }
 
-async function Upload() {
-  upload_html = "upload a txt file";
+async function Upload(request) {
+  let upload_html;
+  if (request.method == 'GET') {
+    upload_html = `
+<form action="/txt/upload" method="POST">
+  <div>
+    <label for="filename">filename</label>
+    <input type="txt" name="filename" id="filename">
+  </div>
+  <div>
+    <textarea name="txt" rows="30" cols="80"></textarea>
+  </div>
+  <div>
+    <input type="submit" value="Upload" name="submit">
+  </div>
+</form>
+`;
+  } else if (request.method == 'POST') {
+    form = await request.formData();
+    var name = form.get('filename');
+    const v = await TXT.get(name);
+    if (v !== null) {
+      upload_html = `file ${name} already exists`;
+    } else {
+      var txt = form.get('txt');
+      await TXT.put(name, txt);
+      return ShowTxt(name, txt);
+    }
+  } else {
+    return new Response(err.stack, { status: 500 });
+  }
+
   return new Response(html_template('upload', upload_html), {
-    headers: { 'content-type': 'text/plain;charset=UTF-8' },
+    headers: { 'content-type': 'text/html;charset=UTF-8' },
+  });
+}
+
+async function Edit(request, filename) {
+  let { origin } = new URL(request.url);
+  let edit_html;
+  if (request.method == 'GET') {
+    if (filename == null || filename == '') {
+      edit_html = `file does not exist`;
+    } else {
+      txt = await TXT.get(filename);
+      if (txt == null) {
+        edit_html = `file does not exist`;
+      } else {
+        edit_html = `
+        <form action="/txt/edit" method="POST">
+          <div>
+            <label for="filename">filename</label>
+            <input type="txt" name="filename" id="filename" value="${filename}">
+          </div>
+          <div>
+            <textarea name="txt" rows="30" cols="80">${txt}</textarea>
+          </div>
+          <div>
+            <input type="submit" value="Update" name="submit">
+          </div>
+        </form>
+        `;
+      }
+    }
+  } else if (request.method == 'POST') {
+    form = await request.formData();
+    var name = form.get('filename');
+    const v = await TXT.get(name);
+    if (v === null) {
+      edit_html = `file ${name} does not exists`;
+    } else {
+      var txt = form.get('txt');
+      await TXT.put(name, txt);
+      return ShowTxt(name, txt);
+    }
+  } else {
+    return new Response(err.stack, { status: 500 });
+  }
+
+  return new Response(html_template('edit', edit_html), {
+    headers: { 'content-type': 'text/html;charset=UTF-8' },
   });
 }
