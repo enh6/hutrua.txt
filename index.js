@@ -32,38 +32,25 @@ async function handleRequest(request) {
     return Upload();
   }
 
-  if (path == 'edit') {
-    let filename = params.get('filename');
-    if (!isValid(filename)) {
-      return ShowMessage('edit', `invalid filename`);
-    } else {
-      return Edit(filename);
-    }
+  if (path.startsWith('edit/')) {
+    return Edit(path.substring(5), params);
   }
 
   if (path.startsWith('raw/')) {
-    let name = decodeURIComponent(path.substring(4));
-    let txt = await TXT.get(name);
-    if (txt !== null) {
-      return ShowTxtPlain(name, txt);
-    }
-  } else {
-    let name = decodeURIComponent(path);
-    let txt = await TXT.get(name);
-    if (txt !== null) {
-      return ShowTxt(name, txt);
-    }
+    return handleRaw(path.substring(4), params);
   }
 
-  return ShowMessage('404', '404 not found');
+  return handleTxt(path, params);
 }
 
 function isValid(filename) {
-  if (filename == null || filename == '') {
+  if (filename === null || filename === '' || filename === 'private') {
     return false;
   }
-
-  return true;
+  if (filename.startsWith('private/')) {
+    filename.substring(8);
+  }
+  return /^[a-z0-9_.@()-]+$/i.test(filename);
 }
 
 function escapeHtml(unsafe) {
@@ -113,8 +100,8 @@ function ShowTxt(name, txt) {
   for (let i = 0; i < txt.length; i++) {
     txt[i] = '<p>' + escapeHtml(txt[i]) + '</p>';
   }
-  txt.push(`<a href="raw/${name}">raw</a>`);
-  txt.push(`<a href="edit?filename=${name}">edit</a>`);
+  txt.push(`<a href="/txt/raw/${name}">raw</a>`);
+  txt.push(`<a href="/txt/edit/${name}">edit</a>`);
   txt = txt.join('\n');
   return ShowHtml(name, txt);
 }
@@ -138,7 +125,7 @@ async function ListTxt() {
     let name = v.keys[i].name;
     list.push(`<p><a href="/txt/${name}">${name}</a></p>\n`);
   }
-  list.push(`<a href="upload">upload</a>`);
+  list.push(`<a href="/txt/upload">upload</a>`);
   list = list.join('\n');
   return ShowHtml('txt list', list);
 }
@@ -158,14 +145,34 @@ async function Upload(request) {
     <input type="password" name="token" id="token">
   </div>
   <div>
-    <input type="submit" value="Upload" name="submit">
+    <input type="submit" value="Upload">
   </div>
 </form>
 `;
   return ShowHtml('upload', upload_html);
 }
 
-async function Edit(filename) {
+async function Edit(filename, params) {
+  if (!isValid(filename)) {
+    return ShowMessage('edit', `invalid filename`);
+  }
+  if (filename.startsWith('private/')) {
+    let token = params.get('token');
+    if (!(await validToken(token))) {
+      private_html = `<p>private file</p>
+<form action="/txt/edit/${filename}" method="GET">
+  <div>
+    <label for="token">token</label>
+    <input type="password" name="token" id="token">
+  </div>
+  <div>
+    <input type="submit" value="Edit">
+  </div>
+</form>`;
+      return ShowHtml(filename, private_html);
+    }
+  }
+
   const txt = await TXT.get(filename);
   if (txt === null) {
     return ShowMessage('edit', `file ${filename} does not exist`);
@@ -174,7 +181,7 @@ async function Edit(filename) {
   let edit_html = `<form method="POST">
   <div>
     <label for="filename">filename</label>
-    <input type="txt" name="filename" id="filename" value="${filename}">
+    <input type="txt" name="filename" id="filename" value="${filename}" readonly>
   </div>
   <div>
     <textarea name="txt" rows="30" cols="80">${txt}</textarea>
@@ -184,20 +191,16 @@ async function Edit(filename) {
   <input type="password" name="token" id="token">
   </div>
   <div>
-    <input type="submit" value="Update" name="submit" formaction="/txt/edit">
-    <input type="submit" value="Delete" name="delete" formaction="/txt/delete">
+    <input type="submit" value="Update" formaction="/txt/edit">
+    <input type="submit" value="Delete" formaction="/txt/delete">
   </div>
 </form>`;
   return ShowHtml('edit', edit_html);
 }
 
-async function handlePost(request, path) {
-  form = await request.formData();
-
-  const token = new TextEncoder().encode(
-    'User input token: ' + form.get('token'),
-  );
-  const sha = await crypto.subtle.digest('SHA-512', token);
+async function validToken(token) {
+  const salted_token = new TextEncoder().encode('User input token: ' + token);
+  const sha = await crypto.subtle.digest('SHA-512', salted_token);
   const sha_hex = new Uint8Array(sha).reduce(
     (a, b) => a + b.toString(16).padStart(2, '0'),
     '',
@@ -209,7 +212,13 @@ async function handlePost(request, path) {
     '3686b07262169225460749a0327d7541' +
     'd6ee433b9408f4f88868ce265beae91a';
 
-  if (sha_hex !== correct_hex) {
+  return sha_hex === correct_hex;
+}
+
+async function handlePost(request, path) {
+  form = await request.formData();
+
+  if (!(await validToken(form.get('token')))) {
     return ShowMessage(path, `invalid token`);
   }
 
@@ -223,30 +232,86 @@ async function handlePost(request, path) {
 
   if (path === 'upload') {
     if (v !== null) {
-      return ShowMessage('upload', `file ${name} already exists`);
+      return ShowMessage(path, `file ${name} already exists`);
     } else {
       await TXT.put(name, txt);
       return ShowTxt(name, txt);
     }
+  }
+
+  if (v === null) {
+    return ShowMessage(path, `file ${name} does not exist`);
   }
 
   if (path === 'edit') {
-    if (v === null) {
-      return ShowMessage('edit', `file ${name} does not exist`);
-    } else {
-      await TXT.put(name, txt);
-      return ShowTxt(name, txt);
-    }
+    await TXT.put(name, txt);
+    return ShowTxt(name, txt);
   }
 
   if (path === 'delete') {
-    if (v === null) {
-      return ShowMessage('delete', `file ${name} does not exist`);
-    } else {
-      await TXT.delete(name);
-      return ShowMessage('delete', `file ${name} deleted`);
-    }
+    await TXT.delete(name);
+    return ShowMessage(path, `file ${name} deleted`);
   }
 
   return ShowMessage(path, `server error`);
+}
+
+async function handleRaw(path, params) {
+  if (path.startsWith('private/')) {
+    let token = params.get('token');
+    if (!(await validToken(token))) {
+      private_html = `<p>private file</p>
+<form action="/txt/raw/${path}" method="GET">
+  <div>
+    <label for="token">token</label>
+    <input type="password" name="token" id="token">
+  </div>
+  <div>
+    <input type="submit" value="View">
+  </div>
+</form>`;
+      return ShowHtml(path, private_html);
+    }
+  }
+
+  let name = decodeURIComponent(path);
+  if (!isValid(name)) {
+    return ShowMessage(name, `invalid filename`);
+  }
+  let txt = await TXT.get(name);
+  if (txt !== null) {
+    return ShowTxtPlain(name, txt);
+  }
+
+  return ShowMessage('404', '404 not found');
+}
+
+async function handleTxt(path, params) {
+  if (path.startsWith('private/')) {
+    let token = params.get('token');
+    if (!(await validToken(token))) {
+      private_html = `<p>private file</p>
+<form action="/txt/${path}" method="GET">
+  <div>
+    <label for="token">token</label>
+    <input type="password" name="token" id="token">
+  </div>
+  <div>
+    <input type="submit" value="View">
+  </div>
+</form>`;
+      return ShowHtml(path, private_html);
+    }
+  }
+
+  let name = decodeURIComponent(path);
+  if (!isValid(name)) {
+    return ShowMessage(name, `invalid filename`);
+  }
+  let txt = await TXT.get(name);
+  if (txt !== null) {
+    return ShowTxt(name, txt);
+  }
+
+  return ShowMessage('404', '404 not found');
 }
