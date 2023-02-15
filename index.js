@@ -14,22 +14,31 @@ async function handleRequest(request) {
   }
 
   if (path === '/txt/') {
-    return Response.redirect(origin + '/txt/hutrua', 301);
+    return Response.redirect(origin + '/txt/hutrua.txt', 301);
   }
 
   path = path.substring(5);
   path = path.endsWith('/') ? path.slice(0, -1) : path;
+
+  if (request.method == 'POST') {
+    return handlePost(request, path);
+  }
 
   if (path === 'list') {
     return ListTxt();
   }
 
   if (path === 'upload') {
-    return Upload(request);
+    return Upload();
   }
 
   if (path == 'edit') {
-    return Edit(request, params.get('filename'));
+    let filename = params.get('filename');
+    if (!isValid(filename)) {
+      return ShowMessage('edit', `invalid filename`);
+    } else {
+      return Edit(filename);
+    }
   }
 
   if (path.startsWith('raw/')) {
@@ -46,7 +55,15 @@ async function handleRequest(request) {
     }
   }
 
-  return ShowTxt('404', '404 not found');
+  return ShowMessage('404', '404 not found');
+}
+
+function isValid(filename) {
+  if (filename == null || filename == '') {
+    return false;
+  }
+
+  return true;
 }
 
 function escapeHtml(unsafe) {
@@ -82,6 +99,15 @@ function html_template(name, content) {
 </html>`;
 }
 
+function ShowMessage(name, error) {
+  error = error.split('\n');
+  for (let i = 0; i < error.length; i++) {
+    error[i] = '<p>' + escapeHtml(error[i]) + '</p>';
+  }
+  error = error.join('\n');
+  return ShowHtml(name, error);
+}
+
 function ShowTxt(name, txt) {
   txt = txt.split('\n');
   for (let i = 0; i < txt.length; i++) {
@@ -90,7 +116,11 @@ function ShowTxt(name, txt) {
   txt.push(`<a href="raw/${name}">raw</a>`);
   txt.push(`<a href="edit?filename=${name}">edit</a>`);
   txt = txt.join('\n');
-  return new Response(html_template(name, txt), {
+  return ShowHtml(name, txt);
+}
+
+function ShowHtml(name, html) {
+  return new Response(html_template(name, html), {
     headers: { 'content-type': 'text/html;charset=UTF-8' },
   });
 }
@@ -110,15 +140,11 @@ async function ListTxt() {
   }
   list.push(`<a href="upload">upload</a>`);
   list = list.join('\n');
-  return new Response(html_template('txt list', list), {
-    headers: { 'content-type': 'text/html;charset=UTF-8' },
-  });
+  return ShowHtml('txt list', list);
 }
 
 async function Upload(request) {
-  let upload_html;
-  if (request.method == 'GET') {
-    upload_html = `
+  let upload_html = `
 <form action="/txt/upload" method="POST">
   <div>
     <label for="filename">filename</label>
@@ -128,73 +154,99 @@ async function Upload(request) {
     <textarea name="txt" rows="30" cols="80"></textarea>
   </div>
   <div>
+    <label for="token">token</label>
+    <input type="password" name="token" id="token">
+  </div>
+  <div>
     <input type="submit" value="Upload" name="submit">
   </div>
 </form>
 `;
-  } else if (request.method == 'POST') {
-    form = await request.formData();
-    var name = form.get('filename');
-    const v = await TXT.get(name);
-    if (v !== null) {
-      upload_html = `file ${name} already exists`;
-    } else {
-      var txt = form.get('txt');
-      await TXT.put(name, txt);
-      return ShowTxt(name, txt);
-    }
-  } else {
-    return new Response(err.stack, { status: 500 });
-  }
-
-  return new Response(html_template('upload', upload_html), {
-    headers: { 'content-type': 'text/html;charset=UTF-8' },
-  });
+  return ShowHtml('upload', upload_html);
 }
 
-async function Edit(request, filename) {
-  let { origin } = new URL(request.url);
-  let edit_html;
-  if (request.method == 'GET') {
-    if (filename == null || filename == '') {
-      edit_html = `file does not exist`;
+async function Edit(filename) {
+  const txt = await TXT.get(filename);
+  if (txt === null) {
+    return ShowMessage('edit', `file ${filename} does not exist`);
+  }
+
+  let edit_html = `<form method="POST">
+  <div>
+    <label for="filename">filename</label>
+    <input type="txt" name="filename" id="filename" value="${filename}">
+  </div>
+  <div>
+    <textarea name="txt" rows="30" cols="80">${txt}</textarea>
+  </div>
+  <div>
+  <label for="token">token</label>
+  <input type="password" name="token" id="token">
+  </div>
+  <div>
+    <input type="submit" value="Update" name="submit" formaction="/txt/edit">
+    <input type="submit" value="Delete" name="delete" formaction="/txt/delete">
+  </div>
+</form>`;
+  return ShowHtml('edit', edit_html);
+}
+
+async function handlePost(request, path) {
+  form = await request.formData();
+
+  const token = new TextEncoder().encode(
+    'User input token: ' + form.get('token'),
+  );
+  const sha = await crypto.subtle.digest('SHA-512', token);
+  const sha_hex = new Uint8Array(sha).reduce(
+    (a, b) => a + b.toString(16).padStart(2, '0'),
+    '',
+  );
+
+  const correct_hex =
+    '4bc007f98d52df91d989360911663d29' +
+    '51dfbffc2296a456aa053152b4527b62' +
+    '3686b07262169225460749a0327d7541' +
+    'd6ee433b9408f4f88868ce265beae91a';
+
+  if (sha_hex !== correct_hex) {
+    return ShowMessage(path, `invalid token`);
+  }
+
+  let name = form.get('filename');
+  if (!isValid(name)) {
+    return ShowMessage(path, `invalid filename`);
+  }
+
+  let txt = form.get('txt');
+  const v = await TXT.get(name);
+
+  if (path === 'upload') {
+    if (v !== null) {
+      return ShowMessage('upload', `file ${name} already exists`);
     } else {
-      txt = await TXT.get(filename);
-      if (txt == null) {
-        edit_html = `file does not exist`;
-      } else {
-        edit_html = `
-        <form action="/txt/edit" method="POST">
-          <div>
-            <label for="filename">filename</label>
-            <input type="txt" name="filename" id="filename" value="${filename}">
-          </div>
-          <div>
-            <textarea name="txt" rows="30" cols="80">${txt}</textarea>
-          </div>
-          <div>
-            <input type="submit" value="Update" name="submit">
-          </div>
-        </form>
-        `;
-      }
-    }
-  } else if (request.method == 'POST') {
-    form = await request.formData();
-    var name = form.get('filename');
-    const v = await TXT.get(name);
-    if (v === null) {
-      edit_html = `file ${name} does not exists`;
-    } else {
-      var txt = form.get('txt');
       await TXT.put(name, txt);
       return ShowTxt(name, txt);
     }
-  } else {
-    return new Response(err.stack, { status: 500 });
   }
 
-  return new Response(html_template('edit', edit_html), {
-    headers: { 'content-type': 'text/html;charset=UTF-8' },
-  });
+  if (path === 'edit') {
+    if (v === null) {
+      return ShowMessage('edit', `file ${name} does not exist`);
+    } else {
+      await TXT.put(name, txt);
+      return ShowTxt(name, txt);
+    }
+  }
+
+  if (path === 'delete') {
+    if (v === null) {
+      return ShowMessage('delete', `file ${name} does not exist`);
+    } else {
+      await TXT.delete(name);
+      return ShowMessage('delete', `file ${name} deleted`);
+    }
+  }
+
+  return ShowMessage(path, `server error`);
 }
