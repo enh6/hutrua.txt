@@ -5,6 +5,8 @@ main = "./index.js"
 account_id = "b410adaa9ab7f1ef2eb0db105947d60c"
 workers_dev = true
 
+compatibility_date = "2023-02-16"
+
 kv_namespaces = [
     { binding = "TXT", id = "9315df3fee3942d89f719d7cd1030148", preview_id = "9315df3fee3942d89f719d7cd1030148" }
 ]
