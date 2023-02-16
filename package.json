@@ -4,10 +4,17 @@
   "version": "0.0.1",
   "main": "index.js",
   "scripts": {
+    "build": "wrangler publish --dry-run --outdir dist",
+    "dev": "miniflare --no-cf-fetch --watch --debug dist/index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "format": "prettier --write '**/*.{js,css,json,md}'"
   },
   "devDependencies": {
-    "prettier": "^1.18.2"
+    "miniflare": "^2.12.0",
+    "prettier": "^1.18.2",
+    "wrangler": "^2.10.0"
+  },
+  "dependencies": {
+    "marked": "^4.2.12"
   }
 }
