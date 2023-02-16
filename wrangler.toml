@@ -1,5 +1,4 @@
 name = "hutrua-txt"
-type = "javascript"
 main = "./index.js"
 
 account_id = "b410adaa9ab7f1ef2eb0db105947d60c"
@@ -14,7 +13,6 @@ kv_namespaces = [
 [env.production]
 workers_dev = false
 route = "*.hutrua.com/txt/*"
-zone_id = "a2491412ad806f22a6e98d633afe0fdc"
 kv_namespaces = [
     { binding = "TXT", id = "9315df3fee3942d89f719d7cd1030148", preview_id = "9315df3fee3942d89f719d7cd1030148" }
 ]
