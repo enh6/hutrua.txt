@@ -1,0 +1,17 @@
+<form method="POST">
+  <div>
+    <label for="filename">filename</label>
+    <input type="txt" name="filename" id="filename" value="{{filename}}" readonly>
+  </div>
+  <div>
+    <textarea name="txt" rows="30" cols="80">{{txt}}</textarea>
+  </div>
+  <div>
+  <label for="token">token</label>
+  <input type="password" name="token" id="token">
+  </div>
+  <div>
+    <input type="submit" value="Update" formaction="/txt/edit">
+    <input type="submit" value="Delete" formaction="/txt/delete">
+  </div>
+</form>
