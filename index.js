@@ -38,6 +38,11 @@ async function handleRequest(request) {
     return ShowHtml('upload', upload_html);
   }
 
+  if (path === 'upload_file') {
+    let upload_html = await TXT.get('private/upload_file.html');
+    return ShowHtml('upload file', upload_html);
+  }
+
   if (path.startsWith('edit/')) {
     return Edit(path.substring(5), params);
   }
@@ -113,6 +118,7 @@ async function ListTxt() {
     list.push(`<p><a href="/txt/${name}">${name}</a></p>\n`);
   }
   list.push(`<a href="/txt/upload">upload</a>`);
+  list.push(`<a href="/txt/upload_file">upload file</a>`);
   list = list.join('\n');
   return ShowHtml('txt list', list);
 }
@@ -153,21 +159,32 @@ async function validToken(token) {
 }
 
 async function handlePost(request, entry, path) {
-  form = await request.formData();
+  const form = await request.formData();
 
   if (!(await validToken(form.get('token')))) {
     return ShowMessage(path, `invalid token`);
   }
 
-  let name = form.get('filename');
+  let name, txt;
+  if (path === 'upload_file') {
+    const file = form.get('file-to-upload');
+    if (file.size === 0) {
+      return ShowMessage(path, `invalid file`);
+    }
+    name = file.name;
+    console.log(name)
+    txt = await file.text();
+  } else {
+    name = form.get('filename');
+    txt = form.get('txt');
+  }
+
   if (!isValid(name)) {
     return ShowMessage(path, `invalid filename`);
   }
-
-  let txt = form.get('txt');
   const v = await TXT.get(name);
 
-  if (path === 'upload') {
+  if (path === 'upload' || path === 'upload_file') {
     if (v !== null) {
       return ShowMessage(path, `file ${name} already exists`);
     } else {
