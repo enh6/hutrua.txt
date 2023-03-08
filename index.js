@@ -34,12 +34,12 @@ async function handleRequest(request) {
   }
 
   if (path === 'upload') {
-    let upload_html = await TXT.get('private/upload.html');
+    let upload_html = await TXT.get('upload.html');
     return ShowHtml('upload', upload_html);
   }
 
   if (path === 'upload_file') {
-    let upload_html = await TXT.get('private/upload_file.html');
+    let upload_html = await TXT.get('upload_file.html');
     return ShowHtml('upload file', upload_html);
   }
 
@@ -49,9 +49,6 @@ async function handleRequest(request) {
 function isValid(filename) {
   if (filename === null || filename === '') {
     return false;
-  }
-  if (filename.startsWith('private/')) {
-    filename = filename.substring(8);
   }
   return /^[a-z0-9_.@()-]+$/i.test(filename);
 }
@@ -93,7 +90,7 @@ async function ShowTxt(name, txt) {
 }
 
 async function ShowHtml(name, content) {
-  let page_template = await TXT.get('private/page.html');
+  let page_template = await TXT.get('page.html');
   return new Response(
     mustache.render(page_template, { name: name, content: content }),
     {
@@ -111,7 +108,7 @@ async function ShowTxtPlain(name, txt) {
 async function ShowBin(name, bin) {
   if (!bin) {
     let bin_html = `<p>binary file</p>\n`;
-    bin_html += `<a href="/txt/raw/${name}" download>download</a>\n`;
+    bin_html += `<a href="/txt/raw/${name}">download</a>\n`;
     bin_html += `<a href="/txt/edit/${name}">edit</a>\n`;
     return ShowHtml(name, bin_html);
   }
@@ -144,7 +141,7 @@ async function validToken(token) {
     '',
   );
 
-  const correct_hex = await TXT.get('private/TOKEN');
+  const correct_hex = await TXT.get('TOKEN');
 
   return sha_hex === correct_hex;
 }
@@ -236,7 +233,7 @@ async function handleGet(path, params) {
   if (metadata === null || metadata.is_private) {
     let token = params.get('token');
     if (!(await validToken(token))) {
-      let private_template = await TXT.get('private/private.html');
+      let private_template = await TXT.get('private.html');
       private_html = mustache.render(private_template, {
         path: path,
         submit: type,
@@ -247,7 +244,7 @@ async function handleGet(path, params) {
 
   if (metadata && metadata.is_bin) {
     if (type == 'Edit') {
-      let edit_template = await TXT.get('private/edit_bin.html');
+      let edit_template = await TXT.get('edit_bin.html');
       return ShowHtml(
         'edit',
         mustache.render(edit_template, {
@@ -265,7 +262,7 @@ async function handleGet(path, params) {
   }
 
   if (type === 'Edit') {
-    let edit_template = await TXT.get('private/edit.html');
+    let edit_template = await TXT.get('edit.html');
     return ShowHtml(
       'edit',
       mustache.render(edit_template, {
