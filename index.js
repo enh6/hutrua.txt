@@ -1,5 +1,5 @@
-import {marked} from 'marked'
-import mustache from 'mustache'
+import { marked } from 'marked';
+import mustache from 'mustache';
 
 addEventListener('fetch', event => {
   event.respondWith(
@@ -43,19 +43,11 @@ async function handleRequest(request) {
     return ShowHtml('upload file', upload_html);
   }
 
-  if (path.startsWith('edit/')) {
-    return Edit(path.substring(5), params);
-  }
-
-  if (path.startsWith('raw/')) {
-    return handleRaw(path.substring(4), params);
-  }
-
-  return handleTxt(path, params);
+  return handleGet(path, params);
 }
 
 function isValid(filename) {
-  if (filename === null || filename === '' || filename === 'private') {
+  if (filename === null || filename === '') {
     return false;
   }
   if (filename.startsWith('private/')) {
@@ -73,20 +65,23 @@ function escapeHtml(unsafe) {
     .replace(/'/g, '&#039;');
 }
 
-async function ShowMessage(name, error) {
-  error = error.split('\n');
-  for (let i = 0; i < error.length; i++) {
-    error[i] = '<p>' + escapeHtml(error[i]) + '</p>';
+async function ShowMessage(name, msg) {
+  msg = msg.split('\n');
+  for (let i = 0; i < msg.length; i++) {
+    msg[i] = '<p>' + escapeHtml(msg[i]) + '</p>';
   }
-  error = error.join('\n');
-  return ShowHtml(name, error);
+  msg = msg.join('\n');
+  return ShowHtml(name, msg);
 }
 
 async function ShowTxt(name, txt) {
   if (name.endsWith('.md')) {
     txt = marked.parse(txt);
   } else {
-    txt = txt = txt.replace(/^\s+|\r|\s+$/g, '').replace(/\t/g, '    ').split('\n');
+    txt = txt
+      .replace(/^\s+|\r|\s+$/g, '')
+      .replace(/\t/g, '    ')
+      .split('\n');
     for (let i = 0; i < txt.length; i++) {
       txt[i] = txt[i] ? '<p>' + escapeHtml(txt[i]) + '</p>' : '<br>';
     }
@@ -99,14 +94,32 @@ async function ShowTxt(name, txt) {
 
 async function ShowHtml(name, content) {
   let page_template = await TXT.get('private/page.html');
-  return new Response(mustache.render(page_template, {name: name, content: content}), {
-    headers: { 'content-type': 'text/html;charset=UTF-8' },
-  });
+  return new Response(
+    mustache.render(page_template, { name: name, content: content }),
+    {
+      headers: { 'content-type': 'text/html;charset=UTF-8' },
+    },
+  );
 }
 
 async function ShowTxtPlain(name, txt) {
   return new Response(txt, {
     headers: { 'content-type': 'text/plain;charset=UTF-8' },
+  });
+}
+
+async function ShowBin(name, bin) {
+  if (!bin) {
+    let bin_html = `<p>binary file</p>\n`;
+    bin_html += `<a href="/txt/raw/${name}" download>download</a>\n`;
+    bin_html += `<a href="/txt/edit/${name}">edit</a>\n`;
+    return ShowHtml(name, bin_html);
+  }
+  return new Response(bin, {
+    headers: {
+      'content-type': 'application/octet-stream',
+      'content-disposition': 'attachment',
+    },
   });
 }
 
@@ -121,28 +134,6 @@ async function ListTxt() {
   list.push(`<a href="/txt/upload_file">upload file</a>`);
   list = list.join('\n');
   return ShowHtml('txt list', list);
-}
-
-async function Edit(filename, params) {
-  if (!isValid(filename)) {
-    return ShowMessage('edit', `invalid filename`);
-  }
-  if (filename.startsWith('private/')) {
-    let token = params.get('token');
-    if (!(await validToken(token))) {
-      let private_template = await TXT.get('private/private.html');
-      private_html = mustache.render(private_template, {path: 'edit/' + filename, submit: 'Edit'});
-      return ShowHtml(filename, private_html);
-    }
-  }
-
-  const txt = await TXT.get(filename);
-  if (txt === null) {
-    return ShowMessage('edit', `file ${filename} does not exist`);
-  }
-
-  let edit_template = await TXT.get('private/edit.html');
-  return ShowHtml('edit', mustache.render(edit_template, {filename: filename, txt: txt}));
 }
 
 async function validToken(token) {
@@ -166,14 +157,21 @@ async function handlePost(request, entry, path) {
   }
 
   let name, txt;
+  let metadata = {
+    is_private: true,
+    is_bin: false,
+    timestamp: Date.now(),
+  };
+  metadata.is_private = form.get('is_private') === 'true';
+  metadata.is_bin = form.get('is_bin') === 'true';
+
   if (path === 'upload_file') {
     const file = form.get('file-to-upload');
     if (file.size === 0) {
       return ShowMessage(path, `invalid file`);
     }
     name = file.name;
-    console.log(name)
-    txt = await file.text();
+    txt = metadata.is_bin ? await file.stream() : await file.text();
   } else {
     name = form.get('filename');
     txt = form.get('txt');
@@ -188,7 +186,7 @@ async function handlePost(request, entry, path) {
     if (v !== null) {
       return ShowMessage(path, `file ${name} already exists`);
     } else {
-      await TXT.put(name, txt);
+      await TXT.put(name, txt, { metadata: metadata });
       return Response.redirect(entry + name, 303);
     }
   }
@@ -198,7 +196,12 @@ async function handlePost(request, entry, path) {
   }
 
   if (path === 'edit') {
-    await TXT.put(name, txt);
+    if (metadata.is_bin) {
+      // only change metadata
+      await TXT.put(name, v, { metadata: metadata });
+    } else {
+      await TXT.put(name, txt, { metadata: metadata });
+    }
     return Response.redirect(entry + name, 303);
   }
 
@@ -210,46 +213,71 @@ async function handlePost(request, entry, path) {
   return ShowMessage(path, `server error`);
 }
 
-async function handleRaw(path, params) {
-  if (path.startsWith('private/')) {
+async function handleGet(path, params) {
+  let name, type;
+  if (path.startsWith('edit/')) {
+    type = 'Edit';
+    name = path.substring(5);
+  } else if (path.startsWith('raw/')) {
+    type = 'View Raw';
+    name = path.substring(4);
+  } else {
+    type = 'View';
+    name = path;
+  }
+  name = decodeURIComponent(name);
+  if (!isValid(name)) {
+    return ShowMessage('404', '404 not found');
+  }
+  const { value: txt, metadata } = await TXT.getWithMetadata(name);
+  if (txt === null) {
+    return ShowMessage('404', '404 not found');
+  }
+  if (metadata === null || metadata.is_private) {
     let token = params.get('token');
     if (!(await validToken(token))) {
       let private_template = await TXT.get('private/private.html');
-      private_html = mustache.render(private_template, {path: 'raw/' + path, submit: 'View'});
-      return ShowHtml(path, private_html);
+      private_html = mustache.render(private_template, {
+        path: path,
+        submit: type,
+      });
+      return ShowHtml(name, private_html);
     }
   }
 
-  let name = decodeURIComponent(path);
-  if (!isValid(name)) {
-    return ShowMessage(name, `invalid filename`);
+  if (metadata && metadata.is_bin) {
+    if (type == 'Edit') {
+      let edit_template = await TXT.get('private/edit_bin.html');
+      return ShowHtml(
+        'edit',
+        mustache.render(edit_template, {
+          filename: name,
+          is_private: metadata ? metadata.is_private : true,
+        }),
+      );
+    } else if (type === 'View Raw') {
+      const bin = await TXT.get(name, { type: 'stream' });
+      return ShowBin(name, bin);
+    } else {
+      // type === 'View'
+      return ShowBin(name);
+    }
   }
-  let txt = await TXT.get(name);
-  if (txt !== null) {
+
+  if (type === 'Edit') {
+    let edit_template = await TXT.get('private/edit.html');
+    return ShowHtml(
+      'edit',
+      mustache.render(edit_template, {
+        filename: name,
+        txt: txt,
+        is_private: metadata ? metadata.is_private : true,
+      }),
+    );
+  } else if (type === 'View Raw') {
     return ShowTxtPlain(name, txt);
-  }
-
-  return ShowMessage('404', '404 not found');
-}
-
-async function handleTxt(path, params) {
-  if (path.startsWith('private/')) {
-    let token = params.get('token');
-    if (!(await validToken(token))) {
-      let private_template = await TXT.get('private/private.html');
-      private_html = mustache.render(private_template, {path: path, submit: 'View'});
-      return ShowHtml(path, private_html);
-    }
-  }
-
-  let name = decodeURIComponent(path);
-  if (!isValid(name)) {
-    return ShowMessage(name, `invalid filename`);
-  }
-  let txt = await TXT.get(name);
-  if (txt !== null) {
+  } else {
+    // type === 'View'
     return ShowTxt(name, txt);
   }
-
-  return ShowMessage('404', '404 not found');
 }

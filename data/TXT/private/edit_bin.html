@@ -3,8 +3,8 @@
     <label for="filename">filename</label>
     <input type="txt" name="filename" id="filename" value="{{filename}}" readonly>
   </div>
-  <div>
-    <textarea name="txt" rows="30" cols="80">{{txt}}</textarea>
+  <div >
+    <input type="checkbox" name="is_bin" id="is_bin" value="true" checked hidden>
   </div>
   <div>
     <input type="checkbox" name="is_private" id="is_private" value="true"{{#is_private}} checked{{/is_private}}>
