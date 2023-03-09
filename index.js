@@ -10,7 +10,7 @@ addEventListener('fetch', event => {
 });
 
 async function handleRequest(request) {
-  let { origin, pathname: path, searchParams: params } = new URL(request.url);
+  let { origin, pathname: path } = new URL(request.url);
 
   let entry = origin + '/txt/';
 
@@ -34,20 +34,28 @@ async function handleRequest(request) {
   }
 
   if (path === 'upload') {
+    if (!(await loggedIn(request.headers))) {
+      return ShowLogin(path);
+    }
+
     let upload_html = await TXT.get('upload.html');
     return ShowHtml('upload', upload_html);
   }
 
   if (path === 'upload_file') {
+    if (!(await loggedIn(request.headers))) {
+      return ShowLogin(path);
+    }
+
     let upload_html = await TXT.get('upload_file.html');
     return ShowHtml('upload file', upload_html);
   }
 
-  return handleGet(path, params);
+  return handleGet(path, request.headers);
 }
 
 function isValid(filename) {
-  if (filename === null || filename === '') {
+  if (!filename) {
     return false;
   }
   return /^[a-z0-9_.@()-]+$/i.test(filename);
@@ -65,10 +73,18 @@ function escapeHtml(unsafe) {
 async function ShowMessage(name, msg) {
   msg = msg.split('\n');
   for (let i = 0; i < msg.length; i++) {
-    msg[i] = '<p>' + escapeHtml(msg[i]) + '</p>';
+    msg[i] = `<p>${escapeHtml(msg[i])}</p>`;
   }
   msg = msg.join('\n');
   return ShowHtml(name, msg);
+}
+
+async function ShowLogin(path) {
+  let private_template = await TXT.get('login.html');
+  private_html = mustache.render(private_template, {
+    path: path,
+  });
+  return ShowHtml(path, private_html);
 }
 
 async function ShowTxt(name, txt) {
@@ -80,7 +96,7 @@ async function ShowTxt(name, txt) {
       .replace(/\t/g, '    ')
       .split('\n');
     for (let i = 0; i < txt.length; i++) {
-      txt[i] = txt[i] ? '<p>' + escapeHtml(txt[i]) + '</p>' : '<br>';
+      txt[i] = txt[i] ? `<p>${escapeHtml(txt[i])}</p>` : '<br>';
     }
     txt = txt.join('\n');
   }
@@ -121,7 +137,7 @@ async function ShowBin(name, bin) {
 }
 
 async function ListTxt() {
-  const {keys, list_complete} = await TXT.list();
+  const { keys, list_complete } = await TXT.list();
   let list_template = await TXT.get('list.html');
   txts = keys.map(key => {
     let txt = {
@@ -133,7 +149,9 @@ async function ListTxt() {
       expiration: '',
     };
     if (key.metadata) {
-      txt.timestamp = new Date(key.metadata.timestamp).toISOString().split('T')[0];
+      txt.timestamp = new Date(key.metadata.timestamp)
+        .toISOString()
+        .split('T')[0];
       txt.type = key.metadata.is_bin ? 'binary' : 'txt';
       txt.private = key.metadata.is_private ? 'y' : '';
     }
@@ -159,11 +177,44 @@ async function validToken(token) {
   return sha_hex === correct_hex;
 }
 
+async function loggedIn(headers) {
+  let cookies = {};
+  headers.get('Cookie') &&
+    headers
+      .get('Cookie')
+      .split(';')
+      .map(v => v.split('='))
+      .forEach(v => (cookies[v[0]] = v[1]));
+  let token = cookies['token'];
+  return await validToken(token);
+}
+
 async function handlePost(request, entry, path) {
   const form = await request.formData();
 
-  if (!(await validToken(form.get('token')))) {
-    return ShowMessage(path, `invalid token`);
+  if (path === 'login') {
+    const token = form.get('token');
+    const redirect_path = form.get('path');
+    if (!(await validToken(token))) {
+      return ShowMessage(path, `invalid token`);
+    } else {
+      // login expires in 1 hour
+      expire_date = new Date(Date.now() + 3600 * 1000).toUTCString();
+      return new Response(
+        `<meta http-equiv="Refresh" content="0; URL=${entry +
+          redirect_path}" />ok`,
+        {
+          headers: {
+            'content-type': 'text/html;charset=UTF-8',
+            'set-cookie': `token=${token}; path=/txt/; expires=${expire_date}; HttpOnly;`,
+          },
+        },
+      );
+    }
+  }
+
+  if (!(await loggedIn(request.headers))) {
+    return ShowLogin(path);
   }
 
   let name, txt;
@@ -223,7 +274,7 @@ async function handlePost(request, entry, path) {
   return ShowMessage(path, `server error`);
 }
 
-async function handleGet(path, params) {
+async function handleGet(path, headers) {
   let name, type;
   if (path.startsWith('edit/')) {
     type = 'Edit';
@@ -243,15 +294,10 @@ async function handleGet(path, params) {
   if (txt === null) {
     return ShowMessage('404', '404 not found');
   }
-  if (metadata === null || metadata.is_private) {
-    let token = params.get('token');
-    if (!(await validToken(token))) {
-      let private_template = await TXT.get('private.html');
-      private_html = mustache.render(private_template, {
-        path: path,
-        submit: type,
-      });
-      return ShowHtml(name, private_html);
+
+  if (metadata === null || metadata.is_private || type === 'Edit') {
+    if (!(await loggedIn(headers))) {
+      return ShowLogin(path);
     }
   }
 
