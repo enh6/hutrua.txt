@@ -121,16 +121,29 @@ async function ShowBin(name, bin) {
 }
 
 async function ListTxt() {
-  const v = await TXT.list();
-  let list = [];
-  for (let i = 0; i < v.keys.length; i++) {
-    let name = v.keys[i].name;
-    list.push(`<p><a href="/txt/${name}">${name}</a></p>\n`);
-  }
-  list.push(`<a href="/txt/upload">upload</a>`);
-  list.push(`<a href="/txt/upload_file">upload file</a>`);
-  list = list.join('\n');
-  return ShowHtml('txt list', list);
+  const {keys, list_complete} = await TXT.list();
+  let list_template = await TXT.get('list.html');
+  txts = keys.map(key => {
+    let txt = {
+      name: key.name,
+      timestamp: '-',
+      type: 'txt',
+      private: 'y',
+      temp: '',
+      expiration: '',
+    };
+    if (key.metadata) {
+      txt.timestamp = new Date(key.metadata.timestamp).toISOString().split('T')[0];
+      txt.type = key.metadata.is_bin ? 'binary' : 'txt';
+      txt.private = key.metadata.is_private ? 'y' : '';
+    }
+    if (key.expiration) {
+      txt.temp = 'y';
+      txt.expiration = key.expiration + ' seconds';
+    }
+    return txt;
+  });
+  return ShowHtml('txt list', mustache.render(list_template, { txts: txts }));
 }
 
 async function validToken(token) {

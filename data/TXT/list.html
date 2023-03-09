@@ -1,0 +1,35 @@
+<style type="text/css">
+  th, td {text-align: left; padding-right: 14px;}
+  table {padding: 10px;}
+</style>
+
+<table>
+<thead>
+  <tr>
+    <th>Name</th>
+    <th>Last Modified</th>
+    <th>Type</th>
+    <th>Private</th>
+    <!-- <th>Temporary</th>
+    <th>Auto Delete in...</th> -->
+  </tr>
+</thead>
+<tbody>
+  {{#txts}}
+  <tr>
+    <td><a href="/txt/{{name}}">{{name}}</a></td>
+    <td>{{timestamp}}</td>
+    <td>{{type}}</td>
+    <td>{{private}}</td>
+    <!-- <td>{{temp}}</td>
+    <td>{{expiration}}</td> -->
+  </tr>
+  {{/txts}}
+</tbody>
+</table>
+
+<div>
+  <a href="/txt/upload">upload</a>
+  <a href="/txt/upload_file">upload file</a>
+</div>
+
