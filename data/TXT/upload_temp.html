@@ -1,0 +1,20 @@
+<form action="/txt/upload" method="POST">
+  <div>
+    <label for="filename">filename</label>
+    <input type="txt" name="filename" id="filename">
+  </div>
+  <div>
+    <textarea name="txt" rows="30" cols="80"></textarea>
+  </div>
+  <div>
+    <input type="checkbox" name="is_private" id="is_private" value="true" disabled>
+    <label for="is_private">private file (<a href="/txt/login">login</a> to change this option)</label>
+  </div>
+  <div>
+    <input type="checkbox" name="is_temp" id="is_temp" value="true" checked disabled>
+    <label for="is_temp">temp file (<a href="/txt/login">login</a> to change this option)</label>
+  </div>
+  <div>
+    <input type="submit" value="Upload">
+  </div>
+</form>

@@ -29,25 +29,27 @@ async function handleRequest(request) {
     return handlePost(request, entry, path);
   }
 
+  if (path == 'login') {
+    return ShowLogin('list');
+  }
+
   if (path === 'list') {
     return ListTxt();
   }
 
   if (path === 'upload') {
-    if (!(await loggedIn(request.headers))) {
-      return ShowLogin(path);
-    }
-
-    let upload_html = await TXT.get('upload.html');
+    let is_logged_in = await loggedIn(request.headers);
+    let upload_html = is_logged_in
+      ? await TXT.get('upload.html')
+      : await TXT.get('upload_temp.html');
     return ShowHtml('upload', upload_html);
   }
 
   if (path === 'upload_file') {
-    if (!(await loggedIn(request.headers))) {
-      return ShowLogin(path);
-    }
-
-    let upload_html = await TXT.get('upload_file.html');
+    let is_logged_in = await loggedIn(request.headers);
+    let upload_html = is_logged_in
+      ? await TXT.get('upload_file.html')
+      : await TXT.get('upload_file_temp.html');
     return ShowHtml('upload file', upload_html);
   }
 
@@ -84,7 +86,7 @@ async function ShowLogin(path) {
   private_html = mustache.render(private_template, {
     path: path,
   });
-  return ShowHtml(path, private_html);
+  return ShowHtml('login', private_html);
 }
 
 async function ShowTxt(name, txt) {
@@ -137,7 +139,7 @@ async function ShowBin(name, bin) {
 }
 
 async function ListTxt() {
-  const { keys, list_complete } = await TXT.list();
+  const { keys } = await TXT.list();
   let list_template = await TXT.get('list.html');
   txts = keys.map(key => {
     let txt = {
@@ -157,7 +159,8 @@ async function ListTxt() {
     }
     if (key.expiration) {
       txt.temp = 'y';
-      txt.expiration = key.expiration + ' seconds';
+      txt.expiration =
+        Math.floor(key.expiration - Date.now() / 1000) + ' seconds';
     }
     return txt;
   });
@@ -213,18 +216,27 @@ async function handlePost(request, entry, path) {
     }
   }
 
-  if (!(await loggedIn(request.headers))) {
-    return ShowLogin(path);
+  let is_logged_in = await loggedIn(request.headers);
+  // only can upload temp files if not logged in
+  if (!is_logged_in && path !== 'upload' && path !== 'upload_file') {
+    return ShowMessage(path, `invalid token`);
   }
 
   let name, txt;
   let metadata = {
     is_private: true,
     is_bin: false,
+    is_temp: false,
     timestamp: Date.now(),
   };
   metadata.is_private = form.get('is_private') === 'true';
   metadata.is_bin = form.get('is_bin') === 'true';
+  metadata.is_temp = form.get('is_temp') === 'true';
+
+  if (!is_logged_in) {
+    metadata.is_temp = true;
+    metadata.is_private = false;
+  }
 
   if (path === 'upload_file') {
     const file = form.get('file-to-upload');
@@ -247,7 +259,11 @@ async function handlePost(request, entry, path) {
     if (v !== null) {
       return ShowMessage(path, `file ${name} already exists`);
     } else {
-      await TXT.put(name, txt, { metadata: metadata });
+      if (metadata.is_temp) {
+        await TXT.put(name, txt, { metadata: metadata, expirationTtl: 3600 });
+      } else {
+        await TXT.put(name, txt, { metadata: metadata });
+      }
       return Response.redirect(entry + name, 303);
     }
   }
@@ -259,9 +275,17 @@ async function handlePost(request, entry, path) {
   if (path === 'edit') {
     if (metadata.is_bin) {
       // only change metadata
-      await TXT.put(name, v, { metadata: metadata });
+      if (metadata.is_temp) {
+        await TXT.put(name, v, { metadata: metadata, expirationTtl: 3600 });
+      } else {
+        await TXT.put(name, v, { metadata: metadata });
+      }
     } else {
-      await TXT.put(name, txt, { metadata: metadata });
+      if (metadata.is_temp) {
+        await TXT.put(name, txt, { metadata: metadata, expirationTtl: 3600 });
+      } else {
+        await TXT.put(name, txt, { metadata: metadata });
+      }
     }
     return Response.redirect(entry + name, 303);
   }
@@ -301,6 +325,7 @@ async function handleGet(path, headers) {
     }
   }
 
+  console.log(metadata);
   if (metadata && metadata.is_bin) {
     if (type == 'Edit') {
       let edit_template = await TXT.get('edit_bin.html');
@@ -309,6 +334,7 @@ async function handleGet(path, headers) {
         mustache.render(edit_template, {
           filename: name,
           is_private: metadata ? metadata.is_private : true,
+          is_temp: metadata ? metadata.is_temp : false,
         }),
       );
     } else if (type === 'View Raw') {
@@ -328,6 +354,7 @@ async function handleGet(path, headers) {
         filename: name,
         txt: txt,
         is_private: metadata ? metadata.is_private : true,
+        is_temp: metadata ? metadata.is_temp : false,
       }),
     );
   } else if (type === 'View Raw') {
